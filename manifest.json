@@ -1,7 +1,7 @@
 {
 	"name": "Cheats",
 	"namespace": "TajemnikTV",
-	"version_number": "1.1.0",
+	"version_number": "1.1.1",
 	"description": "Cheat utilities powered by Taj's Core.",
 	"website_url": "https://github.com/Taj-s-Mods-Upload-Labs/Cheats",
 	"dependencies": ["TajemnikTV-Core"],

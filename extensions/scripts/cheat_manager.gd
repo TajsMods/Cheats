@@ -1,8 +1,3 @@
-# ==============================================================================
-# Taj's Cheats - Cheat Manager
-# Author: TajemnikTV
-# Description: Builds the cheat UI and applies resource changes.
-# ==============================================================================
 extends RefCounted
 
 const LOG_NAME := "TajemnikTV-Cheats:Cheats"
@@ -112,13 +107,15 @@ func add_fixed(type: String, amount: int) -> void:
 
 func modify_percent(type: String, percent: float) -> void:
     var ok := false
-    var current := _get_currency(type)
-    if current == null:
+    var current_value: Variant = _get_currency(type)
+    if current_value == null:
         _log_warn("Currency type not found: " + type)
         return
 
-    var amount_to_change := float(current) * percent
-    var min_amount := MIN_AMOUNTS.get(type, 1.0)
+    var current: float = float(current_value)
+    var amount_to_change := current * percent
+    var min_amount_value: Variant = MIN_AMOUNTS.get(type, 1.0)
+    var min_amount: float = float(min_amount_value)
     if percent > 0.0 and abs(amount_to_change) < min_amount:
         amount_to_change = min_amount
 
