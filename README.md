@@ -1,6 +1,6 @@
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/TajsMods/Cheats)
+# Taj's Mods: Cheats
 
-# Taj's Cheats
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/TajsMods/Cheats)
 
 Cheat utilities powered by Taj's Core. Adds a Cheats tab in the Core settings menu
 for quick currency and attribute adjustments.

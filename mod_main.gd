@@ -1,8 +1,3 @@
-# ==============================================================================
-# Taj's Cheats - Main
-# Author: TajemnikTV
-# Description: Cheat utilities powered by Taj's Core.
-# ==============================================================================
 extends Node
 
 const MOD_ID := "TajemnikTV-Cheats"
