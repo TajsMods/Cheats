@@ -1,6 +1,8 @@
 extends RefCounted
 
 const LOG_NAME := "TajemnikTV-Cheats:Cheats"
+const ATTRIBUTE_BONUS_SETTING_KEY_DEFAULT := "TajemnikTV-Cheats.attribute_bonus"
+const PERSISTED_ATTRIBUTE_IDS := ["hack_points", "optimization", "application"]
 
 const CHEATS := [
     ["Money", "money", "res://textures/icons/money.png", false],
@@ -23,12 +25,37 @@ const FIXED_VALUES := [1, 3, 5, 10]
 
 var _core = null
 var _economy = null
+var _attribute_bonus_setting_key := ATTRIBUTE_BONUS_SETTING_KEY_DEFAULT
+var _attribute_bonus_by_id := {}
+var _persistent_bonus_restored := false
+var _signals_connected := false
 
-func setup(core) -> void:
+func setup(core, attribute_bonus_setting_key: String = ATTRIBUTE_BONUS_SETTING_KEY_DEFAULT) -> void:
     _core = core
     if _core != null and _core.has_method("get"):
         _economy = _core.get("economy_helpers")
+    if not attribute_bonus_setting_key.strip_edges().is_empty():
+        _attribute_bonus_setting_key = attribute_bonus_setting_key
+    _load_persistent_attribute_bonus()
+    _connect_progress_signals()
     _log("Cheat manager initialized")
+
+func restore_persistent_attribute_bonus() -> void:
+    _connect_progress_signals()
+    if not _are_attributes_ready():
+        return
+    if not _persistent_bonus_restored:
+        _persistent_bonus_restored = true
+        var restored_any := false
+        for attribute_id in PERSISTED_ATTRIBUTE_IDS:
+            var bonus := _get_persistent_bonus(attribute_id)
+            if bonus <= 0.0:
+                continue
+            if _add_attribute_value(attribute_id, bonus):
+                restored_any = true
+        if restored_any:
+            _refresh_globals()
+    _clamp_non_negative_attributes(true)
 
 func build_cheats_tab(parent: Control) -> void:
     var warn := Label.new()
@@ -89,17 +116,16 @@ func _add_cheat_row(parent: Control, label_text: String, type: String, icon_path
             row.add_child(btn)
 
 func add_fixed(type: String, amount: int) -> void:
-    var ok := false
-    if _economy != null and _economy.has_method("add_attribute"):
-        ok = _economy.add_attribute(type, amount)
-    elif Attributes != null and Attributes.attributes.has(type):
-        Attributes.attributes[type].add(amount, 0, 0, 0)
-        _refresh_globals()
-        ok = true
+    var ok := _add_attribute_value(type, float(amount))
 
     if not ok:
         _log_warn("Attribute type not found: " + type)
         return
+
+    if _is_persisted_attribute(type):
+        _add_persistent_bonus(type, float(amount))
+        _save_persistent_attribute_bonus()
+    _clamp_non_negative_attributes(true)
 
     var label = type.replace("_", " ").capitalize()
     _notify("check", "%s +%d" % [label, amount])
@@ -164,9 +190,145 @@ func set_to_zero(type: String, is_attribute: bool = false) -> void:
         _log_warn("%s type not found: %s" % ["Attribute" if is_attribute else "Currency", type])
         return
 
+    if is_attribute and _is_persisted_attribute(type):
+        _set_persistent_bonus(type, 0.0)
+        _save_persistent_attribute_bonus()
+    _clamp_non_negative_attributes(true)
+
     var label := type.replace("_", " ").capitalize()
     _notify("check", "%s set to 0" % label)
     _play_sound("click")
+
+func _connect_progress_signals() -> void:
+    if _signals_connected:
+        return
+    var signals = _get_autoload("Signals")
+    if signals == null:
+        return
+    var connected_any := false
+    if signals.has_signal("new_upgrade"):
+        var upgrade_cb := Callable(self, "_on_new_upgrade")
+        if not signals.new_upgrade.is_connected(upgrade_cb):
+            signals.new_upgrade.connect(upgrade_cb)
+        connected_any = true
+    if signals.has_signal("new_research"):
+        var research_cb := Callable(self, "_on_new_research")
+        if not signals.new_research.is_connected(research_cb):
+            signals.new_research.connect(research_cb)
+        connected_any = true
+    _signals_connected = connected_any
+
+func _on_new_upgrade(upgrade: String, levels: int) -> void:
+    _consume_persistent_bonus_from_upgrade(upgrade, levels)
+
+func _on_new_research(research: String, levels: int) -> void:
+    _consume_persistent_bonus_from_research(research, levels)
+
+func _consume_persistent_bonus_from_upgrade(upgrade: String, levels: int) -> void:
+    if levels == 0:
+        return
+    if Data == null or not Data.upgrades.has(upgrade):
+        return
+    var entry: Dictionary = Data.upgrades[upgrade]
+    _consume_persistent_bonus_from_entry(entry, levels)
+
+func _consume_persistent_bonus_from_research(research: String, levels: int) -> void:
+    if levels == 0:
+        return
+    if Data == null or not Data.research.has(research):
+        return
+    var entry: Dictionary = Data.research[research]
+    _consume_persistent_bonus_from_entry(entry, levels)
+
+func _consume_persistent_bonus_from_entry(entry: Dictionary, levels: int) -> void:
+    var cost_type := int(entry.get("cost_type", -1))
+    if cost_type != int(Utils.COST_TYPES.ATTRIBUTE):
+        return
+    var attribute_id := str(entry.get("attribute_cost", ""))
+    if not _is_persisted_attribute(attribute_id):
+        return
+    var cost := float(entry.get("cost", 0.0))
+    if cost <= 0.0:
+        return
+    _add_persistent_bonus(attribute_id, -cost * float(levels))
+    _save_persistent_attribute_bonus()
+
+func _clamp_non_negative_attributes(save_state: bool) -> void:
+    if not _are_attributes_ready():
+        return
+    var changed_any := false
+    for attribute_id in PERSISTED_ATTRIBUTE_IDS:
+        var current := _get_attribute_value(attribute_id)
+        if current >= 0.0:
+            continue
+        var delta := -current
+        if _add_attribute_value(attribute_id, delta):
+            changed_any = true
+            if save_state:
+                _add_persistent_bonus(attribute_id, delta)
+    if changed_any:
+        _refresh_globals()
+        if save_state:
+            _save_persistent_attribute_bonus()
+
+func _are_attributes_ready() -> bool:
+    if Attributes == null:
+        return false
+    if not (Attributes.attributes is Dictionary):
+        return false
+    return true
+
+func _add_attribute_value(type: String, amount: float) -> bool:
+    if _economy != null and _economy.has_method("add_attribute"):
+        return _economy.add_attribute(type, amount)
+    if Attributes != null and Attributes.attributes.has(type):
+        Attributes.attributes[type].add(amount, 0, 0, 0)
+        _refresh_globals()
+        return true
+    return false
+
+func _get_attribute_value(type: String) -> float:
+    if Attributes == null:
+        return 0.0
+    if not Attributes.attributes.has(type):
+        return 0.0
+    if Attributes.has_method("get_attribute"):
+        return float(Attributes.get_attribute(type))
+    return float(Attributes.attributes[type].get_value())
+
+func _is_persisted_attribute(type: String) -> bool:
+    return PERSISTED_ATTRIBUTE_IDS.has(type)
+
+func _load_persistent_attribute_bonus() -> void:
+    _attribute_bonus_by_id.clear()
+    if _core == null or _core.settings == null:
+        return
+    var saved: Dictionary = _core.settings.get_dict(_attribute_bonus_setting_key, {})
+    for key in saved.keys():
+        var attribute_id := str(key)
+        if not _is_persisted_attribute(attribute_id):
+            continue
+        var bonus := float(saved.get(key, 0.0))
+        if bonus > 0.0:
+            _attribute_bonus_by_id[attribute_id] = bonus
+
+func _save_persistent_attribute_bonus() -> void:
+    if _core == null or _core.settings == null:
+        return
+    _core.settings.set_value(_attribute_bonus_setting_key, _attribute_bonus_by_id.duplicate(true))
+
+func _get_persistent_bonus(type: String) -> float:
+    return float(_attribute_bonus_by_id.get(type, 0.0))
+
+func _set_persistent_bonus(type: String, value: float) -> void:
+    var normalized := max(0.0, float(value))
+    if normalized <= 0.0:
+        _attribute_bonus_by_id.erase(type)
+        return
+    _attribute_bonus_by_id[type] = normalized
+
+func _add_persistent_bonus(type: String, delta: float) -> void:
+    _set_persistent_bonus(type, _get_persistent_bonus(type) + delta)
 
 func _get_currency(type: String) -> Variant:
     if _economy != null and _economy.has_method("get_currency"):

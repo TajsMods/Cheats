@@ -5,6 +5,7 @@ const LOG_NAME := "TajemnikTV-Cheats:Main"
 const CORE_META_KEY := "TajsCore"
 const CORE_MIN_VERSION := "1.1.0"
 const NODE_LIMIT_SETTING_KEY := MOD_ID + ".node_limit"
+const ATTRIBUTE_BONUS_SETTING_KEY := MOD_ID + ".attribute_bonus"
 
 const CheatManagerScript = preload("res://mods-unpacked/TajemnikTV-Cheats/extensions/scripts/cheat_manager.gd")
 
@@ -15,6 +16,7 @@ var _settings_tab: VBoxContainer = null
 var _hud_ready := false
 var _settings_built := false
 var _settings_retry_count := 0
+var _settings_retry_logged := false
 var _node_limit_helpers = null
 var _node_limit_label: Label = null
 var _node_limit_slider: HSlider = null
@@ -34,7 +36,8 @@ func _init() -> void:
     _register_module()
     _register_settings()
     _cheat_manager = CheatManagerScript.new()
-    _cheat_manager.setup(_core)
+    _cheat_manager.setup(_core, ATTRIBUTE_BONUS_SETTING_KEY)
+    _cheat_manager.restore_persistent_attribute_bonus()
     if _core.has_method("get"):
         _node_limit_helpers = _core.get("node_limit_helpers")
     _apply_saved_node_limit()
@@ -77,6 +80,12 @@ func _register_settings() -> void:
             "type": "int",
             "default": Utils.MAX_WINDOW,
             "description": "Max nodes allowed (-1 for unlimited)."
+        },
+        ATTRIBUTE_BONUS_SETTING_KEY: {
+            "type": "dict",
+            "default": {},
+            "description": "Persistent bonus for cheats-managed attribute pools.",
+            "hidden": true
         }
     })
 
@@ -100,11 +109,15 @@ func _on_hud_ready(_payload: Dictionary) -> void:
         return
     _hud_ready = true
     _ui_manager = _core.ui_manager if _core != null else null
+    if _cheat_manager != null and _cheat_manager.has_method("restore_persistent_attribute_bonus"):
+        _cheat_manager.restore_persistent_attribute_bonus()
     _ensure_settings_tab()
 
 func _ensure_settings_tab() -> void:
     if _settings_built or _core == null:
         return
+    if _core != null:
+        _ui_manager = _core.ui_manager
     if _ui_manager == null:
         _retry_settings_tab()
         return
@@ -119,8 +132,14 @@ func _ensure_settings_tab() -> void:
     _settings_built = true
 
 func _retry_settings_tab() -> void:
+    _check_existing_hud()
+    if _core != null:
+        _ui_manager = _core.ui_manager
     _settings_retry_count += 1
-    if _settings_retry_count > 10:
+    if _settings_retry_count > 60:
+        if not _settings_retry_logged:
+            _settings_retry_logged = true
+            _log_warn("Failed to attach Cheats settings tab after startup retries.")
         return
     call_deferred("_ensure_settings_tab")
 
