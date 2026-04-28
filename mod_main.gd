@@ -16,7 +16,7 @@ var _settings_tab: VBoxContainer = null
 var _hud_ready := false
 var _settings_built := false
 var _settings_retry_count := 0
-var _settings_retry_logged := false
+var _settings_retry_pending := false
 var _node_limit_helpers = null
 var _node_limit_label: Label = null
 var _node_limit_slider: HSlider = null
@@ -42,9 +42,11 @@ func _init() -> void:
         _node_limit_helpers = _core.get("node_limit_helpers")
     _apply_saved_node_limit()
     _core.register_settings_tab(MOD_ID, "Cheats", "res://textures/icons/money.png")
-    _register_events()
 
 func _ready() -> void:
+    if _core == null:
+        return
+    _register_events()
     call_deferred("_ensure_settings_tab")
 
 func _process(delta: float) -> void:
@@ -133,15 +135,34 @@ func _ensure_settings_tab() -> void:
 
 func _retry_settings_tab() -> void:
     _check_existing_hud()
+    if _settings_retry_pending:
+        return
+    if not _is_settings_ui_ready():
+        return
+    var tree := get_tree()
+    if tree == null:
+        return
+    _settings_retry_pending = true
+    tree.create_timer(0.25).timeout.connect(Callable(self, "_on_settings_retry_timeout"), CONNECT_ONE_SHOT)
+
+func _on_settings_retry_timeout() -> void:
+    _settings_retry_pending = false
+    if _settings_built or _core == null or not is_inside_tree():
+        return
     if _core != null:
         _ui_manager = _core.ui_manager
     _settings_retry_count += 1
-    if _settings_retry_count > 60:
-        if not _settings_retry_logged:
-            _settings_retry_logged = true
-            _log_warn("Failed to attach Cheats settings tab after startup retries.")
-        return
-    call_deferred("_ensure_settings_tab")
+    _ensure_settings_tab()
+
+func _is_settings_ui_ready() -> bool:
+    var tree := get_tree()
+    if tree == null:
+        return false
+    var root := tree.root
+    if root == null:
+        return false
+    var overlay := root.get_node_or_null("Main/HUD/Main/MainContainer/Overlay")
+    return overlay != null
 
 func _build_settings_ui(container: VBoxContainer) -> void:
     if _cheat_manager == null:
