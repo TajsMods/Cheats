@@ -77,7 +77,7 @@ func _register_module() -> void:
 func _register_settings() -> void:
     if _core == null or _core.settings == null:
         return
-    _core.settings.register_schema(MOD_ID, {
+    var schema := {
         NODE_LIMIT_SETTING_KEY: {
             "type": "int",
             "default": Utils.MAX_WINDOW,
@@ -89,7 +89,11 @@ func _register_settings() -> void:
             "description": "Persistent bonus for cheats-managed attribute pools.",
             "hidden": true
         }
-    })
+    }
+    if _core.has_method("register_settings_schema"):
+        _core.register_settings_schema(MOD_ID, schema)
+    else:
+        _core.settings.register_schema(MOD_ID, schema)
 
 func _register_events() -> void:
     if _core.event_bus != null:
