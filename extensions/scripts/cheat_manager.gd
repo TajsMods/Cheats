@@ -1,7 +1,8 @@
 extends RefCounted
 
+const MOD_ID := "TajemnikTV-Cheats"
 const LOG_NAME := "TajemnikTV-Cheats:Cheats"
-const ATTRIBUTE_BONUS_SETTING_KEY_DEFAULT := "TajemnikTV-Cheats.attribute_bonus"
+const ATTRIBUTE_BONUS_SETTING_KEY_DEFAULT := "tajs_cheats.attribute_bonus"
 const PERSISTED_ATTRIBUTE_IDS := ["hack_points", "optimization", "application"]
 
 const CHEATS := [
@@ -207,12 +208,12 @@ func _connect_progress_signals() -> void:
         return
     var connected_any := false
     if signals.has_signal("new_upgrade"):
-        var upgrade_cb := Callable(self, "_on_new_upgrade")
+        var upgrade_cb := Callable(self , "_on_new_upgrade")
         if not signals.new_upgrade.is_connected(upgrade_cb):
             signals.new_upgrade.connect(upgrade_cb)
         connected_any = true
     if signals.has_signal("new_research"):
-        var research_cb := Callable(self, "_on_new_research")
+        var research_cb := Callable(self , "_on_new_research")
         if not signals.new_research.is_connected(research_cb):
             signals.new_research.connect(research_cb)
         connected_any = true
@@ -371,7 +372,7 @@ func _get_autoload(name: String) -> Object:
 
 func _log(message: String) -> void:
     if _core != null and _core.has_method("logi"):
-        _core.logi("cheats", message)
+        _core.logi(MOD_ID, message)
     elif _has_global_class("ModLoaderLog"):
         ModLoaderLog.info(message, LOG_NAME)
     else:
@@ -379,7 +380,7 @@ func _log(message: String) -> void:
 
 func _log_warn(message: String) -> void:
     if _core != null and _core.has_method("logw"):
-        _core.logw("cheats", message)
+        _core.logw(MOD_ID, message)
     elif _has_global_class("ModLoaderLog"):
         ModLoaderLog.warning(message, LOG_NAME)
     else:

@@ -4,8 +4,11 @@ const MOD_ID := "TajemnikTV-Cheats"
 const LOG_NAME := "TajemnikTV-Cheats:Main"
 const CORE_META_KEY := "TajsCore"
 const CORE_MIN_VERSION := "1.1.0"
-const NODE_LIMIT_SETTING_KEY := MOD_ID + ".node_limit"
-const ATTRIBUTE_BONUS_SETTING_KEY := MOD_ID + ".attribute_bonus"
+const SETTINGS_PREFIX := "tajs_cheats"
+const NODE_LIMIT_SETTING_KEY := SETTINGS_PREFIX + ".node_limit"
+const ATTRIBUTE_BONUS_SETTING_KEY := SETTINGS_PREFIX + ".attribute_bonus"
+const LEGACY_NODE_LIMIT_SETTING_KEY := MOD_ID + ".node_limit"
+const LEGACY_ATTRIBUTE_BONUS_SETTING_KEY := MOD_ID + ".attribute_bonus"
 
 const CheatManagerScript = preload("res://mods-unpacked/TajemnikTV-Cheats/extensions/scripts/cheat_manager.gd")
 
@@ -75,7 +78,8 @@ func _register_module() -> void:
         })
 
 func _register_settings() -> void:
-    if _core == null or _core.settings == null:
+    var settings = _get_settings_service()
+    if _core == null or settings == null:
         return
     var schema := {
         NODE_LIMIT_SETTING_KEY: {
@@ -92,12 +96,32 @@ func _register_settings() -> void:
     }
     if _core.has_method("register_settings_schema"):
         _core.register_settings_schema(MOD_ID, schema)
-    else:
-        _core.settings.register_schema(MOD_ID, schema)
+    _migrate_legacy_settings_keys()
+
+func _migrate_legacy_settings_keys() -> void:
+    var settings = _get_settings_service()
+    if _core == null or settings == null:
+        return
+    var migration_ns := "tajs_cheats_naming"
+    if settings.get_migration_version(migration_ns) != "0.0.0":
+        return
+
+    if settings.get_value(NODE_LIMIT_SETTING_KEY, null) == null:
+        var legacy_limit = settings.get_value(LEGACY_NODE_LIMIT_SETTING_KEY, null)
+        if legacy_limit != null:
+            settings.set_value(NODE_LIMIT_SETTING_KEY, legacy_limit)
+
+    if settings.get_value(ATTRIBUTE_BONUS_SETTING_KEY, null) == null:
+        var legacy_bonus = settings.get_value(LEGACY_ATTRIBUTE_BONUS_SETTING_KEY, null)
+        if legacy_bonus != null:
+            settings.set_value(ATTRIBUTE_BONUS_SETTING_KEY, legacy_bonus)
+
+    settings.set_migration_version(migration_ns, "1.0.0")
 
 func _register_events() -> void:
-    if _core.event_bus != null:
-        _core.event_bus.on("game.hud_ready", Callable(self , "_on_hud_ready"), self , true)
+    var event_bus = _get_event_bus()
+    if event_bus != null:
+        event_bus.on("game.hud_ready", Callable(self , "_on_hud_ready"), self , true)
     call_deferred("_check_existing_hud")
 
 func _check_existing_hud() -> void:
@@ -114,7 +138,7 @@ func _on_hud_ready(_payload: Dictionary) -> void:
     if _hud_ready:
         return
     _hud_ready = true
-    _ui_manager = _core.ui_manager if _core != null else null
+    _ui_manager = _get_ui_manager()
     if _cheat_manager != null and _cheat_manager.has_method("restore_persistent_attribute_bonus"):
         _cheat_manager.restore_persistent_attribute_bonus()
     _ensure_settings_tab()
@@ -123,7 +147,7 @@ func _ensure_settings_tab() -> void:
     if _settings_built or _core == null:
         return
     if _core != null:
-        _ui_manager = _core.ui_manager
+        _ui_manager = _get_ui_manager()
     if _ui_manager == null:
         _retry_settings_tab()
         return
@@ -154,9 +178,30 @@ func _on_settings_retry_timeout() -> void:
     if _settings_built or _core == null or not is_inside_tree():
         return
     if _core != null:
-        _ui_manager = _core.ui_manager
+        _ui_manager = _get_ui_manager()
     _settings_retry_count += 1
     _ensure_settings_tab()
+
+func _get_settings_service() -> Variant:
+    if _core == null:
+        return null
+    if _core.has_method("get_settings_service"):
+        return _core.get_settings_service()
+    return _core.settings
+
+func _get_event_bus() -> Variant:
+    if _core == null:
+        return null
+    if _core.has_method("get_event_bus"):
+        return _core.get_event_bus()
+    return _core.event_bus
+
+func _get_ui_manager() -> Variant:
+    if _core == null:
+        return null
+    if _core.has_method("get_ui_manager"):
+        return _core.get_ui_manager()
+    return _core.ui_manager
 
 func _is_settings_ui_ready() -> bool:
     var tree := get_tree()
